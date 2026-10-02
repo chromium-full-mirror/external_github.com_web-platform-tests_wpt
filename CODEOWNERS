@@ -126,7 +126,6 @@ css/css-anchor-position/position-visibility-anchors-visible-css-visibility.html 
 css/css-anchor-position/position-visibility-anchors-visible-non-intervening-container.html @web-platform-tests/interop
 css/css-anchor-position/position-visibility-anchors-visible-stacked-child.html @web-platform-tests/interop
 css/css-anchor-position/position-visibility-anchors-visible-with-position.html @web-platform-tests/interop
-css/css-anchor-position/position-visibility-anchors-visible.html @web-platform-tests/interop
 css/css-anchor-position/position-visibility-no-overflow-scroll.html @web-platform-tests/interop
 css/css-anchor-position/position-visibility-no-overflow-stacked-child.html @web-platform-tests/interop
 css/css-anchor-position/position-visibility-no-overflow.html @web-platform-tests/interop
