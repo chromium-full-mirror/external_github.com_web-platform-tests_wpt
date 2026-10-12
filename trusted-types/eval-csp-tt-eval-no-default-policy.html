@@ -1,0 +1,95 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <script nonce="abc" src="/resources/testharness.js"></script>
+  <script nonce="abc" src="/resources/testharnessreport.js"></script>
+  <script nonce="abc" src="support/csp-violations.js"></script>
+  <meta http-equiv="Content-Security-Policy"
+        content="script-src 'nonce-abc' 'trusted-types-eval'; require-trusted-types-for 'script'; connect-src 'none'">
+</head>
+<body>
+<script nonce="abc">
+  // 'trusted-types-eval' only replaces the 'unsafe-eval' check. The Trusted
+  // Types check still runs first, so strings are rejected without a default
+  // policy.
+  const p = trustedTypes.createPolicy("p", {createScript: s => s});
+
+  // Strings are rejected since there is no default policy to convert them.
+  promise_test(async t => {
+    const violation = await trusted_type_violation_for(
+        EvalError, () => eval('1+1'));
+    assert_equals(violation.effectiveDirective, 'require-trusted-types-for');
+  }, "eval of string fails.");
+
+  promise_test(async t => {
+    const violation = await trusted_type_violation_for(
+        EvalError, () => eval?.('1+1'));
+    assert_equals(violation.effectiveDirective, 'require-trusted-types-for');
+  }, "indirect eval of string fails.");
+
+  promise_test(async t => {
+    const violation = await trusted_type_violation_for(
+        EvalError, () => new Function('return 1+1'));
+    assert_equals(violation.effectiveDirective, 'require-trusted-types-for');
+  }, "Function constructor of string fails.");
+
+  promise_test(async t => {
+    globalThis.timeoutStringRan = t.unreached_func();
+    const violation = await trusted_type_violation_for(
+        TypeError, () => setTimeout('globalThis.timeoutStringRan()'));
+    assert_equals(violation.effectiveDirective, 'require-trusted-types-for');
+  }, "setTimeout of string throws.");
+
+  promise_test(async t => {
+    globalThis.intervalStringRan = t.unreached_func();
+    const violation = await trusted_type_violation_for(
+        TypeError, () => setInterval('globalThis.intervalStringRan()'));
+    assert_equals(violation.effectiveDirective, 'require-trusted-types-for');
+  }, "setInterval of string throws.");
+
+  // TrustedScript values are accepted.
+  promise_test(async t => {
+    let result;
+    await no_trusted_type_violation_for(
+        () => { result = eval(p.createScript('1+1')); });
+    assert_equals(result, 2);
+  }, "eval of TrustedScript works.");
+
+  promise_test(async t => {
+    let result;
+    await no_trusted_type_violation_for(
+        () => { result = eval?.(p.createScript('1+1')); });
+    assert_equals(result, 2);
+  }, "indirect eval of TrustedScript works.");
+
+  promise_test(async t => {
+    let result;
+    await no_trusted_type_violation_for(
+        () => { result = new Function(p.createScript('return 1+1'))(); });
+    assert_equals(result, 2);
+  }, "Function constructor of TrustedScript works.");
+
+  promise_test(async t => {
+    let ran = false;
+    globalThis.timeoutTrustedScriptRan = () => { ran = true; };
+    await no_trusted_type_violation_for(async () => {
+      setTimeout(p.createScript('globalThis.timeoutTrustedScriptRan()'));
+      await new Promise(resolve => t.step_timeout(resolve, 0));
+    });
+    assert_true(ran, "TrustedScript handler ran");
+  }, "setTimeout of TrustedScript works.");
+
+  promise_test(async t => {
+    let ran = false;
+    globalThis.intervalTrustedScriptRan = () => { ran = true; };
+    await no_trusted_type_violation_for(async () => {
+      const id = setInterval(p.createScript('globalThis.intervalTrustedScriptRan()'));
+      t.add_cleanup(() => clearInterval(id));
+      await new Promise(resolve => t.step_timeout(resolve, 0));
+    });
+    assert_true(ran, "TrustedScript handler ran");
+  }, "setInterval of TrustedScript works.");
+
+</script>
+</body>
+</html>

@@ -1,0 +1,188 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <script nonce="abc" src="/resources/testharness.js"></script>
+  <script nonce="abc" src="/resources/testharnessreport.js"></script>
+  <script nonce="abc" src="support/csp-violations.js"></script>
+  <meta http-equiv="Content-Security-Policy"
+        content="script-src 'nonce-abc' 'trusted-types-eval'; require-trusted-types-for 'script'; connect-src 'none'">
+</head>
+<body>
+<script nonce="abc">
+  // 'trusted-types-eval' only replaces the 'unsafe-eval' check. The Trusted
+  // Types check still runs first, so the default policy's decision is
+  // respected.
+  const policy_error = new Error("createScript exception");
+
+  // The marker in each string selects how the default policy handles it.
+  trustedTypes.createPolicy("default", {
+    createScript: s => {
+      if (s.includes("reject")) return null;
+      if (s.includes("throw")) throw policy_error;
+      if (s.includes("mutate")) return s.replace("mutate", "mutated");
+      return s;
+    }
+  });
+
+  // Strings accepted by the default policy run.
+  promise_test(async t => {
+    let result;
+    await no_trusted_type_violation_for(() => { result = eval('1+1'); });
+    assert_equals(result, 2);
+  }, "eval of string accepted by default policy works.");
+
+  promise_test(async t => {
+    let result;
+    await no_trusted_type_violation_for(() => { result = eval?.('1+1'); });
+    assert_equals(result, 2);
+  }, "indirect eval of string accepted by default policy works.");
+
+  promise_test(async t => {
+    let result;
+    await no_trusted_type_violation_for(() => { result = new Function('return 1+1')(); });
+    assert_equals(result, 2);
+  }, "Function constructor of string accepted by default policy works.");
+
+  promise_test(async t => {
+    let ran = false;
+    globalThis.timeoutAccepted = () => { ran = true; };
+    await no_trusted_type_violation_for(async () => {
+      setTimeout('globalThis.timeoutAccepted()');
+      await new Promise(resolve => t.step_timeout(resolve, 0));
+    });
+    assert_true(ran, "string handler ran");
+  }, "setTimeout of string accepted by default policy works.");
+
+  promise_test(async t => {
+    let ran = false;
+    globalThis.intervalAccepted = () => { ran = true; };
+    await no_trusted_type_violation_for(async () => {
+      const id = setInterval('globalThis.intervalAccepted()');
+      t.add_cleanup(() => clearInterval(id));
+      await new Promise(resolve => t.step_timeout(resolve, 0));
+    });
+    assert_true(ran, "string handler ran");
+  }, "setInterval of string accepted by default policy works.");
+
+  // Strings rejected by the default policy are blocked with a Trusted Types
+  // violation.
+  promise_test(async t => {
+    const violation = await trusted_type_violation_for(
+        EvalError, () => eval('1+1; // reject'));
+    assert_equals(violation.effectiveDirective, 'require-trusted-types-for');
+  }, "eval of string where default policy rejects value throws.");
+
+  promise_test(async t => {
+    const violation = await trusted_type_violation_for(
+        EvalError, () => eval?.('1+1; // reject'));
+    assert_equals(violation.effectiveDirective, 'require-trusted-types-for');
+  }, "indirect eval of string where default policy rejects value throws.");
+
+  promise_test(async t => {
+    const violation = await trusted_type_violation_for(
+        EvalError, () => new Function('return 1+1; // reject'));
+    assert_equals(violation.effectiveDirective, 'require-trusted-types-for');
+  }, "Function constructor of string where default policy rejects value throws.");
+
+  promise_test(async t => {
+    globalThis.timeoutRejected = t.unreached_func();
+    const violation = await trusted_type_violation_for(
+        TypeError, () => setTimeout('globalThis.timeoutRejected(); // reject'));
+    assert_equals(violation.effectiveDirective, 'require-trusted-types-for');
+  }, "setTimeout of string where default policy rejects value throws.");
+
+  promise_test(async t => {
+    globalThis.intervalRejected = t.unreached_func();
+    const violation = await trusted_type_violation_for(
+        TypeError, () => setInterval('globalThis.intervalRejected(); // reject'));
+    assert_equals(violation.effectiveDirective, 'require-trusted-types-for');
+  }, "setInterval of string where default policy rejects value throws.");
+
+  // When the default policy throws an exception, the string is blocked
+  // without a violation. eval() and the Function constructor throw EvalError,
+  // and timers rethrow the exception that the policy threw.
+  promise_test(async t => {
+    const {violations, exception} = await trusted_type_violations_and_exception_for(
+        () => eval('1+1; // throw'));
+    assert_equals(violations.length, 0, "no violation reported");
+    assert_true(exception instanceof EvalError, "EvalError thrown");
+  }, "eval of string where default policy throws, throws EvalError.");
+
+  promise_test(async t => {
+    const {violations, exception} = await trusted_type_violations_and_exception_for(
+        () => eval?.('1+1; // throw'));
+    assert_equals(violations.length, 0, "no violation reported");
+    assert_true(exception instanceof EvalError, "EvalError thrown");
+  }, "indirect eval of string where default policy throws, throws EvalError.");
+
+  promise_test(async t => {
+    const {violations, exception} = await trusted_type_violations_and_exception_for(
+        () => new Function('return 1+1; // throw'));
+    assert_equals(violations.length, 0, "no violation reported");
+    assert_true(exception instanceof EvalError, "EvalError thrown");
+  }, "Function constructor of string where default policy throws, throws EvalError.");
+
+  promise_test(async t => {
+    globalThis.timeoutThrown = t.unreached_func();
+    const {violations, exception} = await trusted_type_violations_and_exception_for(
+        () => setTimeout('globalThis.timeoutThrown(); // throw'));
+    assert_equals(violations.length, 0, "no violation reported");
+    assert_equals(exception, policy_error, "policy exception rethrown");
+  }, "setTimeout of string where default policy throws, rethrows the exception.");
+
+  promise_test(async t => {
+    globalThis.intervalThrown = t.unreached_func();
+    const {violations, exception} = await trusted_type_violations_and_exception_for(
+        () => setInterval('globalThis.intervalThrown(); // throw'));
+    assert_equals(violations.length, 0, "no violation reported");
+    assert_equals(exception, policy_error, "policy exception rethrown");
+  }, "setInterval of string where default policy throws, rethrows the exception.");
+
+  // When the default policy changes the string, eval() and the Function
+  // constructor throw EvalError, while setTimeout() and setInterval() run the
+  // changed string when it is allowed by 'trusted-types-eval'.
+  promise_test(async t => {
+    const {violations, exception} = await trusted_type_violations_and_exception_for(
+        () => eval('"mutate"'));
+    assert_equals(violations.length, 0, "no violation reported");
+    assert_true(exception instanceof EvalError, "EvalError thrown");
+  }, "eval of string where default policy mutates value throws.");
+
+  promise_test(async t => {
+    const {violations, exception} = await trusted_type_violations_and_exception_for(
+        () => eval?.('"mutate"'));
+    assert_equals(violations.length, 0, "no violation reported");
+    assert_true(exception instanceof EvalError, "EvalError thrown");
+  }, "indirect eval of string where default policy mutates value throws.");
+
+  promise_test(async t => {
+    const {violations, exception} = await trusted_type_violations_and_exception_for(
+        () => new Function('return "mutate"'));
+    assert_equals(violations.length, 0, "no violation reported");
+    assert_true(exception instanceof EvalError, "EvalError thrown");
+  }, "Function constructor of string where default policy mutates value throws.");
+
+  promise_test(async t => {
+    let result;
+    globalThis.timeoutResult = value => { result = value; };
+    await no_trusted_type_violation_for(async () => {
+      setTimeout('globalThis.timeoutResult("mutate")');
+      await new Promise(resolve => t.step_timeout(resolve, 0));
+    });
+    assert_equals(result, "mutated");
+  }, "setTimeout of string where default policy mutates value runs the mutated value.");
+
+  promise_test(async t => {
+    let result;
+    globalThis.intervalResult = value => { result = value; };
+    await no_trusted_type_violation_for(async () => {
+      const id = setInterval('globalThis.intervalResult("mutate")');
+      t.add_cleanup(() => clearInterval(id));
+      await new Promise(resolve => t.step_timeout(resolve, 0));
+    });
+    assert_equals(result, "mutated");
+  }, "setInterval of string where default policy mutates value runs the mutated value.");
+
+</script>
+</body>
+</html>
