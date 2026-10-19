@@ -62,6 +62,11 @@
                 ];
 
                 function check_gradient(gradient, stops, shouldParse) {
+                        // Fix the radial prelude so a leading percentage is tested as a
+                        // color hint, not as the ellipse radius allowed by Images 4.
+                        if (gradient.includes("radial-gradient")) {
+                                stops = "ellipse, " + stops;
+                        }
                         var div = document.createElement('div');
                         div.setAttribute("style", "background-image: " + gradient + "(" + stops + ")");
 
