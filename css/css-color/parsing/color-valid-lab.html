@@ -10,10 +10,12 @@
 <link rel="help" href="https://drafts.csswg.org/css-color-4/#serializing-oklab-oklch">
 <script src="/resources/testharness.js"></script>
 <script src="/resources/testharnessreport.js"></script>
+<script src="/css/support/color-testcommon.js"></script>
 <script src="/css/support/parsing-testcommon.js"></script>
 </head>
 <body>
 <script>
+const compareConvertedHue = set_up_fuzzy_color_test(0.00001);
 tests = [
     // lab()
     ["lab(0 0 0)", "lab(0 0 0)"],
@@ -100,7 +102,7 @@ tests = [
     ["lch(20 50 20deg/50%)", "lch(20 50 20 / 0.5)"],
     ["lch(10 20 20deg / -10%)", "lch(10 20 20 / 0)"],
     ["lch(10 20 20deg / 110%)", "lch(10 20 20)"],
-    ["lch(10 20 1.28rad)", "lch(10 20 73.3386)"],
+    ["lch(10 20 1.28rad)", "lch(10 20 73.3386)", {comparisonFunction: compareConvertedHue}],
     ["lch(10 20 380deg)", "lch(10 20 20)"],
     ["lch(10 20 -340deg)", "lch(10 20 20)"],
     ["lch(10 20 740deg)", "lch(10 20 20)"],
@@ -145,7 +147,7 @@ tests = [
     ["oklch(0.2 0.5 20deg/50%)", "oklch(0.2 0.5 20 / 0.5)"],
     ["oklch(0.1 0.2 20deg / -10%)", "oklch(0.1 0.2 20 / 0)"],
     ["oklch(0.1 0.2 20deg / 110%)", "oklch(0.1 0.2 20)"],
-    ["oklch(0.1 0.2 1.28rad)", "oklch(0.1 0.2 73.3386)"],
+    ["oklch(0.1 0.2 1.28rad)", "oklch(0.1 0.2 73.3386)", {comparisonFunction: compareConvertedHue}],
     ["oklch(0.1 0.2 380deg)", "oklch(0.1 0.2 20)"],
     ["oklch(0.1 0.2 -340deg)", "oklch(0.1 0.2 20)"],
     ["oklch(0.1 0.2 740deg)", "oklch(0.1 0.2 20)"],
@@ -198,7 +200,7 @@ tests = [
 ];
 
 for (const test of tests) {
-    test_valid_value("color", test[0], test[1]);
+    test_valid_value("color", test[0], test[1], test[2]);
 }
 
 </script>
