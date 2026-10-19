@@ -28,6 +28,23 @@
   }
 </style>
 <script>
+    function compare_oklch_near_full_turn(actual, expected) {
+      const pattern = /^oklch\(([-+\d.e]+) ([-+\d.e]+) ([-+\d.e]+)\)$/;
+      const actualChannels = actual.match(pattern);
+      const expectedChannels = expected.match(pattern);
+      assert_not_equals(actualChannels, null, "Computed color uses OKLCH syntax");
+      assert_not_equals(expectedChannels, null, "Expected color uses OKLCH syntax");
+      const a = actualChannels.slice(1).map(Number);
+      const e = expectedChannels.slice(1).map(Number);
+      assert_array_approx_equals(a.slice(0, 2), e.slice(0, 2), 0.01,
+                                "Lightness and chroma are approximately equal");
+      assert_greater_than_equal(a[2], 0, "Hue is normalized");
+      assert_less_than(a[2], 360, "Hue is normalized");
+      const hueDifference = Math.abs(a[2] - e[2]);
+      assert_less_than_equal(Math.min(hueDifference, 360 - hueDifference), 0.01,
+                             "Hue angles are approximately equal modulo 360");
+    }
+
     // HSL - RCS
     fuzzy_test_computed_color(`hsl(from hsl(0 50% 50%) h s l)`, `color(srgb 0.75 0.25 0.25)`);
     fuzzy_test_computed_color(`hsl(from hsl(180 0 50%) h s l)`, `color(srgb 0.5 0.5 0.5)`);
@@ -621,7 +638,8 @@
     fuzzy_test_computed_color(`oklch(from lab(0 0 0) l c h)`, `oklch(0 0 none)`);
     fuzzy_test_computed_color(`oklch(from oklab(0 0 0) l c h)`, `oklch(0 0 none)`);
 
-    fuzzy_test_computed_color(`oklch(from color(display-p3 0.08610937692934956 0.08610188202042188 0.08610387292083356) l c h)`, `oklch(0.2 0.000004 359.99999992)`);
+    test_computed_value("color", `oklch(from color(display-p3 0.08610937692934956 0.08610188202042188 0.08610387292083356) l c h)`, `oklch(0.2 0.000004 359.99999992)`,
+                        undefined, {comparisonFunction: compare_oklch_near_full_turn});
     fuzzy_test_computed_color(`oklch(from color(display-p3 0.0860989 0.08610658 0.08610454) l c h)`, `oklch(0.2 0.0000041 179.99967542)`);
 
     fuzzy_test_computed_color(`color(from oklch(0.5 0 180) display-p3 r g b)`, `color(display-p3 0.38857286 0.38857286 0.38857286)`);
@@ -731,7 +749,8 @@
     fuzzy_test_computed_color(`color-mix(in oklch, lab(0 0 0))`, `oklch(0 0 none)`);
     fuzzy_test_computed_color(`color-mix(in oklch, oklab(0 0 0))`, `oklch(0 0 none)`);
 
-    fuzzy_test_computed_color(`color-mix(in oklch, color(display-p3 0.08610937692934956 0.08610188202042188 0.08610387292083356))`, `oklch(0.2 0.000004 359.99999992)`);
+    test_computed_value("color", `color-mix(in oklch, color(display-p3 0.08610937692934956 0.08610188202042188 0.08610387292083356))`, `oklch(0.2 0.000004 359.99999992)`,
+                        undefined, {comparisonFunction: compare_oklch_near_full_turn});
     fuzzy_test_computed_color(`color-mix(in oklch, color(display-p3 0.0860989 0.08610658 0.08610454))`, `oklch(0.2 0.0000041 179.99967542)`);
 </script>
 </body>
