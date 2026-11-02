@@ -80,14 +80,21 @@ function load_frame(t, src) {
 // src attribute, is allowed by a policy with the url source of |allowed|, a
 // URL string or a list of them, and |sources| in |directive|, and |policy|
 // added to it. The policy is delivered as given by |test_type|, see
-// get_support_url(). Loads |url_string| in the support document |frame|, after
-// inserting a <base> for each of |base_urls|, and checks that it posts
-// |expected|. Violations of |ignored_violation_directive|, e.g. "base-uri" for
-// a <base> it blocks, aren't reported as the result.
+// get_support_url(). Loads |url_string| with a <script> element of the type
+// |script_type| in the support document |frame|, after inserting a <base> for
+// each of |base_urls|, and checks that it posts |expected|. Violations of
+// |ignored_violation_directive|, e.g. "base-uri" for a <base> it blocks, aren't
+// reported as the result.
+//
+// With |imported_with| "import" or "import()", the <script> element is a
+// module script which imports |url_string| that way instead. The module script
+// is requested with an absolute URL string and allowed by its url source, so
+// that the imported script doesn't inherit its nonce.
 function url_string_test({name, url_string, allowed, expected,
                           test_type = "header", directive = "script-src",
                           sources = "", frame = "iframe", base_urls = [],
-                          policy = "", ignored_violation_directive = ""}) {
+                          policy = "", ignored_violation_directive = "",
+                          script_type = "", imported_with}) {
   promise_test(async t => {
     const all_sources = ["'nonce-forinlinescript'"];
     for (const allowed_url_string of [allowed].flat()) {
@@ -96,12 +103,20 @@ function url_string_test({name, url_string, allowed, expected,
     if (sources) {
       all_sources.push(sources);
     }
+    let script_url = url_string;
+
+    if (imported_with) {
+      script_url = get_importer_url(imported_with, url_string);
+      all_sources.push(await url_source(script_url));
+      script_type = "module";
+    }
+
     let full_policy = `${directive} ${all_sources.join(" ")}`;
     if (policy) {
       full_policy += `; ${policy}`;
     }
 
-    const params = [["script_url", url_string],
+    const params = [["script_url", script_url], ["script_type", script_type],
                     ["ignored_violation_directive",
                      ignored_violation_directive]];
     for (const base_url of base_urls) {
@@ -118,6 +133,8 @@ function url_string_test({name, url_string, allowed, expected,
 // parameter, for each way of importing it (|imported_with| below).
 const IMPORTERS = {
   importScripts: "import_scripts_worker.js",
+  import: "static_import.sub.js",
+  "import()": "dynamic_import.sub.js",
 };
 
 // Returns the absolute URL of the support script which imports |url_string|
@@ -131,25 +148,36 @@ function get_importer_url(imported_with, url_string, params = {}) {
 // Tests whether a script requested with |url_string| in a |worker_type|
 // ("dedicated", "shared" or "service") worker is allowed by a policy with the
 // url source of |allowed| in |directive|. Creates the worker in
-// worker.sub.html and checks that it posts |expected|.
+// worker.sub.html, as a module worker if |module| is true, and checks that it
+// posts |expected|.
 //
 // Without |imported_with|, |url_string| is the URL of the worker's script, i.e.
 // the URL passed to the Worker or SharedWorker constructor or to
 // navigator.serviceWorker.register(), which is checked against the policy of
-// the document. With |imported_with| "importScripts", the worker's script
-// imports |url_string| with importScripts() instead, which is checked against
-// the policy of the worker, delivered with its script.
+// the document. With |imported_with|, the worker's script imports |url_string|
+// instead:
+// - with "import", by a static import, which is fetched for the document like
+//   the worker's script, so it's checked against the policy of the document,
+//   which also allows the worker's script, requested with an absolute URL
+//   string, by its url source,
+// - with "importScripts" or "import()", which is checked against the policy of
+//   the worker, delivered with its script.
 function url_string_worker_test({name, worker_type, url_string, allowed,
                                  expected, directive = "script-src",
-                                 imported_with}) {
+                                 module = false, imported_with}) {
   promise_test(async t => {
-    const source = await url_source(allowed);
-    let policy = directive == "script-src" ?
-      `script-src 'nonce-forinlinescript' ${source}` :
-      `script-src 'nonce-forinlinescript'; ${directive} ${source}`;
+    let sources = await url_source(allowed);
     let script_url = url_string;
+    if (imported_with == "import") {
+      script_url = get_importer_url(imported_with, url_string);
+      sources += ` ${await url_source(script_url)}`;
+    }
 
-    if (imported_with) {
+    let policy = directive == "script-src" ?
+      `script-src 'nonce-forinlinescript' ${sources}` :
+      `script-src 'nonce-forinlinescript'; ${directive} ${sources}`;
+
+    if (imported_with && imported_with != "import") {
       script_url = get_importer_url(imported_with, url_string, {
         pipe: `header(Content-Security-Policy,${policy})`,
       });
@@ -157,7 +185,7 @@ function url_string_worker_test({name, worker_type, url_string, allowed,
     }
 
     const result = await load_frame(t, get_support_url("header", "worker",
-        policy, {worker_type, script_url}));
+        policy, {worker_type, script_url, module}));
     assert_equals(result, expected);
   }, `${name} - header`);
 }

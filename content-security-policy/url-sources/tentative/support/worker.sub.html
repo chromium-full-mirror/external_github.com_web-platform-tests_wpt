@@ -7,9 +7,12 @@
         });
 
         // Creates a worker of the worker_type parameter from the script_url
-        // parameter and passes on what it posts.
+        // parameter, as a module worker if the module parameter is "true",
+        // and passes on what it posts. If loading the worker's script fails,
+        // e.g. because a module it imports is blocked, report a violation.
         const params = new URLSearchParams(location.search);
         const scriptUrl = params.get('script_url');
+        const type = params.get('module') == 'true' ? 'module' : 'classic';
         const report = message => top.postMessage(message, '*');
 
         // Create the worker once the document has loaded, as creating a worker
@@ -17,22 +20,25 @@
         window.addEventListener('load', () => {
           switch (params.get('worker_type')) {
             case 'dedicated': {
-              const worker = new Worker(scriptUrl);
+              const worker = new Worker(scriptUrl, {type});
               worker.onmessage = e => report(e.data);
+              worker.onerror = () => report('CSP_VIOLATION');
               break;
             }
             case 'shared': {
               // Use a unique name, so that an instance from another test isn't
               // reused.
-              const worker = new SharedWorker(scriptUrl, location.href);
+              const worker = new SharedWorker(scriptUrl,
+                                              {name: location.href, type});
               worker.port.onmessage = e => report(e.data);
+              worker.onerror = () => report('CSP_VIOLATION');
               break;
             }
             case 'service':
               // A service worker can't post to a document it doesn't control
               // yet. Its registration only succeeds if its script could be
               // loaded and ran without throwing.
-              navigator.serviceWorker.register(scriptUrl).then(
+              navigator.serviceWorker.register(scriptUrl, {type}).then(
                   async registration => {
                     await registration.unregister();
                     report('SCRIPT_RAN');
