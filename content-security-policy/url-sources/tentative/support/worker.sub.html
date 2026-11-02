@@ -1,0 +1,46 @@
+<!DOCTYPE html>
+<html>
+<body>
+    <script nonce='forinlinescript'>
+        window.addEventListener('securitypolicyviolation', function() {
+          top.postMessage('CSP_VIOLATION', '*');
+        });
+
+        // Creates a worker of the worker_type parameter from the script_url
+        // parameter and passes on what it posts.
+        const params = new URLSearchParams(location.search);
+        const scriptUrl = params.get('script_url');
+        const report = message => top.postMessage(message, '*');
+
+        // Create the worker once the document has loaded, as creating a worker
+        // while an iframe's document is still being parsed occasionally fails.
+        window.addEventListener('load', () => {
+          switch (params.get('worker_type')) {
+            case 'dedicated': {
+              const worker = new Worker(scriptUrl);
+              worker.onmessage = e => report(e.data);
+              break;
+            }
+            case 'shared': {
+              // Use a unique name, so that an instance from another test isn't
+              // reused.
+              const worker = new SharedWorker(scriptUrl, location.href);
+              worker.port.onmessage = e => report(e.data);
+              break;
+            }
+            case 'service':
+              // A service worker can't post to a document it doesn't control
+              // yet. Its registration only succeeds if its script could be
+              // loaded and ran without throwing.
+              navigator.serviceWorker.register(scriptUrl).then(
+                  async registration => {
+                    await registration.unregister();
+                    report('SCRIPT_RAN');
+                  },
+                  () => report('CSP_VIOLATION'));
+              break;
+          }
+        });
+    </script>
+</body>
+</html>
