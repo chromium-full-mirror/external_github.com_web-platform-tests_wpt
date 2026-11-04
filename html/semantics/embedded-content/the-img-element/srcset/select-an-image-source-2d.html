@@ -1,0 +1,302 @@
+<!doctype html>
+<meta charset=utf-8>
+<title>Normative image source selection with 2D sizes and height descriptors</title>
+<link rel=help href="https://html.spec.whatwg.org/multipage/images.html#select-an-image-source-from-a-source-set">
+<link rel=help href="https://html.spec.whatwg.org/multipage/images.html#normalise-the-source-densities">
+<script src="/resources/testharness.js"></script>
+<script src="/resources/testharnessreport.js"></script>
+<body>
+<script>
+const dpr = window.devicePixelRatio;
+let nextId = 0;
+
+function candidateUrl(label, token) {
+  return `/images/green-2x2.png?id=${token}&candidate=${label}`;
+}
+
+function getSelectedCandidate(url) {
+  return new URL(url).searchParams.get('candidate');
+}
+
+function w(mult, base = 400) {
+  return Math.round(dpr * mult * base);
+}
+
+// Helper for <img> + <picture><source> + <link rel=preload> tests with explicit 2D sizes.
+const explicit2DTests = [
+  {
+    desc: 'cover 400px 400px with 3:2 h descriptors (concreteWidth=600px) selects exact 1x DPR match',
+    sizes: 'cover 400px 400px',
+    srcset: c => `${c('a')} ${w(0.5, 600)}w ${w(0.5, 400)}h, ${c('b')} ${w(1, 600)}w ${w(1, 400)}h, ${c('c')} ${w(2, 600)}w ${w(2, 400)}h`,
+    expected: 'b',
+    expectedDensity: 1 * dpr,
+  },
+  {
+    desc: 'cover 400px 400px with 3:2 h descriptors (concreteWidth=600px) selects smallest density >= DPR',
+    sizes: 'cover 400px 400px',
+    srcset: c => `${c('a')} ${w(0.5, 600)}w ${w(0.5, 400)}h, ${c('b')} ${w(0.75, 600)}w ${w(0.75, 400)}h, ${c('c')} ${w(1.5, 600)}w ${w(1.5, 400)}h, ${c('d')} ${w(2, 600)}w ${w(2, 400)}h`,
+    expected: 'c',
+    expectedDensity: 1.5 * dpr,
+  },
+  {
+    desc: 'cover 400px 400px with 3:2 h descriptors selects highest density when all are < DPR',
+    sizes: 'cover 400px 400px',
+    srcset: c => `${c('a')} ${w(0.25, 600)}w ${w(0.25, 400)}h, ${c('b')} ${w(0.5, 600)}w ${w(0.5, 400)}h, ${c('c')} ${w(0.75, 600)}w ${w(0.75, 400)}h`,
+    expected: 'c',
+    expectedDensity: 0.75 * dpr,
+  },
+  {
+    desc: 'contain 800px 400px with 1:1 h descriptors (concreteWidth=400px) selects exact 1x DPR match',
+    sizes: 'contain 800px 400px',
+    srcset: c => `${c('a')} ${w(0.5, 400)}w ${w(0.5, 400)}h, ${c('b')} ${w(1, 400)}w ${w(1, 400)}h, ${c('c')} ${w(2, 400)}w ${w(2, 400)}h`,
+    expected: 'b',
+    expectedDensity: 1 * dpr,
+  },
+  {
+    desc: 'contain 800px 400px with 1:1 h descriptors (concreteWidth=400px) selects smallest density >= DPR',
+    sizes: 'contain 800px 400px',
+    srcset: c => `${c('a')} ${w(0.5, 400)}w ${w(0.5, 400)}h, ${c('b')} ${w(1.25, 400)}w ${w(1.25, 400)}h, ${c('c')} ${w(2, 400)}w ${w(2, 400)}h`,
+    expected: 'b',
+    expectedDensity: 1.25 * dpr,
+  },
+  {
+    desc: 'mixed aspect ratios in srcset where larger w has smaller normalized density (800w/800px=1x vs 600w/400px=1.5x)',
+    sizes: 'cover 400px 400px',
+    srcset: c => `${c('a')} ${w(1, 800)}w ${w(1, 400)}h, ${c('b')} ${w(1.5, 400)}w ${w(1.5, 400)}h`,
+    expected: 'a',
+    expectedDensity: 1 * dpr,
+  },
+  {
+    desc: 'mixed aspect ratios in srcset where smaller w has larger normalized density (600w/800px=0.75x vs 400w/400px=1x)',
+    sizes: 'cover 400px 400px',
+    srcset: c => `${c('a')} ${w(0.75, 800)}w ${w(0.75, 400)}h, ${c('b')} ${w(1, 400)}w ${w(1, 400)}h`,
+    expected: 'b',
+    expectedDensity: 1 * dpr,
+  },
+  {
+    desc: 'different w descriptors normalizing to equal 2D density deduplicate keeping first candidate (400w/400px vs 800w/800px)',
+    sizes: 'cover 400px 400px',
+    srcset: c => `${c('first')} ${w(1, 400)}w ${w(1, 400)}h, ${c('second')} ${w(1, 800)}w ${w(1, 400)}h`,
+    expected: 'first',
+    expectedDensity: 1 * dpr,
+  },
+  {
+    desc: 'different w descriptors normalizing to equal 2D density deduplicate keeping first candidate (reversed order)',
+    sizes: 'cover 400px 400px',
+    srcset: c => `${c('first')} ${w(1, 800)}w ${w(1, 400)}h, ${c('second')} ${w(1, 400)}w ${w(1, 400)}h`,
+    expected: 'first',
+    expectedDensity: 1 * dpr,
+  },
+  {
+    desc: 'cover 0px 0px normalizes all w candidates to Infinity and deduplicates keeping first candidate',
+    sizes: 'cover 0px 0px',
+    srcset: c => `${c('a')} ${w(0.5, 400)}w ${w(0.5, 400)}h, ${c('b')} ${w(1, 400)}w ${w(1, 400)}h, ${c('c')} ${w(2, 400)}w ${w(2, 400)}h`,
+    expected: 'a',
+  },
+];
+
+for (const tc of explicit2DTests) {
+  promise_test(async t => {
+    const token = ++nextId;
+    const c = label => candidateUrl(label, token);
+    const img = document.createElement('img');
+    t.add_cleanup(() => img.remove());
+    img.sizes = tc.sizes;
+    img.srcset = tc.srcset(c);
+    const loaded = new Promise((resolve, reject) => {
+      img.onload = resolve;
+      img.onerror = () => reject(new Error('img load failed'));
+    });
+    document.body.appendChild(img);
+    await loaded;
+    assert_equals(getSelectedCandidate(img.currentSrc), tc.expected);
+    if (tc.expectedDensity !== undefined) {
+      assert_equals(img.naturalWidth, Math.round(2 / tc.expectedDensity));
+    }
+  }, `<img>: ${tc.desc}`);
+
+  promise_test(async t => {
+    const token = ++nextId;
+    const c = label => candidateUrl(label, token);
+    const picture = document.createElement('picture');
+    const source = document.createElement('source');
+    const img = document.createElement('img');
+    t.add_cleanup(() => picture.remove());
+    source.sizes = tc.sizes;
+    source.srcset = tc.srcset(c);
+    picture.append(source, img);
+    const loaded = new Promise((resolve, reject) => {
+      img.onload = resolve;
+      img.onerror = () => reject(new Error('picture img load failed'));
+    });
+    document.body.appendChild(picture);
+    await loaded;
+    assert_equals(getSelectedCandidate(img.currentSrc), tc.expected);
+  }, `<picture><source>: ${tc.desc}`);
+
+  promise_test(async t => {
+    const token = ++nextId;
+    const c = label => candidateUrl(label, token);
+    const link = document.createElement('link');
+    t.add_cleanup(() => link.remove());
+    link.rel = 'preload';
+    link.as = 'image';
+    link.imageSizes = tc.sizes;
+    link.imageSrcset = tc.srcset(c);
+    const loaded = new Promise((resolve, reject) => {
+      link.onload = resolve;
+      link.onerror = () => reject(new Error('link preload failed'));
+    });
+    document.head.appendChild(link);
+    await loaded;
+    const entries = performance.getEntriesByType('resource')
+      .filter(e => e.name.includes(`id=${token}&`));
+    assert_equals(entries.length, 1, 'exactly one candidate should be preloaded');
+    assert_equals(getSelectedCandidate(entries[0].name), tc.expected);
+  }, `<link rel=preload>: ${tc.desc}`);
+}
+
+// Dimension attribute aspect ratio tests on <img> and <picture><source>.
+promise_test(async t => {
+  const token = ++nextId;
+  const c = label => candidateUrl(label, token);
+  const img = document.createElement('img');
+  t.add_cleanup(() => img.remove());
+  img.width = 600;
+  img.height = 400;
+  img.sizes = 'cover 400px 400px';
+  img.srcset = `${c('a')} ${w(0.5, 600)}w, ${c('b')} ${w(1, 600)}w, ${c('c')} ${w(2, 600)}w`;
+  const loaded = new Promise((resolve, reject) => {
+    img.onload = resolve;
+    img.onerror = () => reject(new Error('img load failed'));
+  });
+  document.body.appendChild(img);
+  await loaded;
+  assert_equals(getSelectedCandidate(img.currentSrc), 'b');
+}, '<img> with width/height attributes (3:2) and cover 400px 400px selects exact 1x DPR candidate');
+
+promise_test(async t => {
+  const token = ++nextId;
+  const c = label => candidateUrl(label, token);
+  const img = document.createElement('img');
+  t.add_cleanup(() => img.remove());
+  // Default aspect ratio from width/height is 1:1 (concreteWidth=400px),
+  // while candidate 'a' has an explicit 2:1 h descriptor (concreteWidth=800px).
+  // 'a' normalizes to 800*dpr / 800 = 1.0*dpr; 'b' (no h descriptor) normalizes to 600*dpr / 400 = 1.5*dpr.
+  img.width = 400;
+  img.height = 400;
+  img.sizes = 'cover 400px 400px';
+  img.srcset = `${c('a')} ${w(1, 800)}w ${w(1, 400)}h, ${c('b')} ${w(1.5, 400)}w`;
+  const loaded = new Promise((resolve, reject) => {
+    img.onload = resolve;
+    img.onerror = () => reject(new Error('img load failed'));
+  });
+  document.body.appendChild(img);
+  await loaded;
+  assert_equals(getSelectedCandidate(img.currentSrc), 'a');
+}, '<img> with mixed h-descriptor and fallback dimension-attribute aspect ratio normalizes each candidate independently');
+
+promise_test(async t => {
+  const token = ++nextId;
+  const c = label => candidateUrl(label, token);
+  const picture = document.createElement('picture');
+  const source = document.createElement('source');
+  const img = document.createElement('img');
+  t.add_cleanup(() => picture.remove());
+  source.setAttribute('width', '600');
+  source.setAttribute('height', '400');
+  source.sizes = 'cover 400px 400px';
+  source.srcset = `${c('a')} ${w(0.5, 600)}w, ${c('b')} ${w(1, 600)}w, ${c('c')} ${w(2, 600)}w`;
+  img.width = 400;
+  img.height = 400;
+  picture.append(source, img);
+  const loaded = new Promise((resolve, reject) => {
+    img.onload = resolve;
+    img.onerror = () => reject(new Error('picture img load failed'));
+  });
+  document.body.appendChild(picture);
+  await loaded;
+  assert_equals(getSelectedCandidate(img.currentSrc), 'b');
+}, '<picture><source> with width/height attributes overrides <img> aspect ratio for normative 2D selection');
+
+promise_test(async t => {
+  const token = ++nextId;
+  const c = label => candidateUrl(label, token);
+  const picture = document.createElement('picture');
+  const source = document.createElement('source');
+  const img = document.createElement('img');
+  t.add_cleanup(() => picture.remove());
+  source.sizes = 'cover 400px 400px';
+  source.srcset = `${c('a')} ${w(0.5, 600)}w, ${c('b')} ${w(1, 600)}w, ${c('c')} ${w(2, 600)}w`;
+  img.width = 600;
+  img.height = 400;
+  picture.append(source, img);
+  const loaded = new Promise((resolve, reject) => {
+    img.onload = resolve;
+    img.onerror = () => reject(new Error('picture img load failed'));
+  });
+  document.body.appendChild(picture);
+  await loaded;
+  assert_equals(getSelectedCandidate(img.currentSrc), 'b');
+}, '<picture><source> without width/height attributes inherits <img> aspect ratio for normative 2D selection');
+
+// sizes="auto" with object-fit normative selection tests.
+const auto2DTests = [
+  {
+    desc: 'sizes="auto" with object-fit: cover on 40px x 40px box and 3:2 candidates (concreteWidth=60px) selects 1x DPR candidate',
+    style: 'width: 40px; height: 40px; object-fit: cover',
+    srcset: c => `${c('a')} ${w(0.5, 60)}w ${w(0.5, 40)}h, ${c('b')} ${w(1, 60)}w ${w(1, 40)}h, ${c('c')} ${w(2, 60)}w ${w(2, 40)}h`,
+    expected: 'b',
+  },
+  {
+    desc: 'sizes="auto" with object-fit: cover on 40px x 40px box and 3:2 candidates selects smallest density >= DPR (1.5x)',
+    style: 'width: 40px; height: 40px; object-fit: cover',
+    srcset: c => `${c('a')} ${w(0.5, 60)}w ${w(0.5, 40)}h, ${c('b')} ${w(0.75, 60)}w ${w(0.75, 40)}h, ${c('c')} ${w(1.5, 60)}w ${w(1.5, 40)}h, ${c('d')} ${w(2, 60)}w ${w(2, 40)}h`,
+    expected: 'c',
+  },
+  {
+    desc: 'sizes="auto" with object-fit: contain on 80px x 40px box and 1:1 candidates (concreteWidth=40px) selects 1x DPR candidate',
+    style: 'width: 80px; height: 40px; object-fit: contain',
+    srcset: c => `${c('a')} ${w(0.5, 40)}w ${w(0.5, 40)}h, ${c('b')} ${w(1, 40)}w ${w(1, 40)}h, ${c('c')} ${w(2, 40)}w ${w(2, 40)}h`,
+    expected: 'b',
+  },
+  {
+    desc: 'sizes="auto" with object-fit: scale-down on 80px x 40px box and 1:1 candidates (concreteWidth=40px) selects 1x DPR candidate',
+    style: 'width: 80px; height: 40px; object-fit: scale-down',
+    srcset: c => `${c('a')} ${w(0.5, 40)}w ${w(0.5, 40)}h, ${c('b')} ${w(1, 40)}w ${w(1, 40)}h, ${c('c')} ${w(2, 40)}w ${w(2, 40)}h`,
+    expected: 'b',
+  },
+  {
+    desc: 'sizes="auto" with object-fit: fill on 80px x 40px box and 1:1 candidates (concreteWidth=80px) selects 1x DPR candidate',
+    style: 'width: 80px; height: 40px; object-fit: fill',
+    srcset: c => `${c('a')} ${w(0.5, 40)}w ${w(0.5, 40)}h, ${c('b')} ${w(1, 40)}w ${w(1, 40)}h, ${c('c')} ${w(1, 80)}w ${w(1, 80)}h`,
+    expected: 'c',
+  },
+  {
+    desc: 'sizes="auto" with object-fit: none on 80px x 40px box and 1:1 candidates (concreteWidth=80px) selects 1x DPR candidate',
+    style: 'width: 80px; height: 40px; object-fit: none',
+    srcset: c => `${c('a')} ${w(0.5, 40)}w ${w(0.5, 40)}h, ${c('b')} ${w(1, 40)}w ${w(1, 40)}h, ${c('c')} ${w(1, 80)}w ${w(1, 80)}h`,
+    expected: 'c',
+  },
+];
+
+for (const tc of auto2DTests) {
+  promise_test(async t => {
+    const token = ++nextId;
+    const c = label => candidateUrl(label, token);
+    const img = document.createElement('img');
+    t.add_cleanup(() => img.remove());
+    img.loading = 'lazy';
+    img.sizes = 'auto';
+    img.style.cssText = tc.style;
+    img.srcset = tc.srcset(c);
+    const loaded = new Promise((resolve, reject) => {
+      img.onload = resolve;
+      img.onerror = () => reject(new Error('img load failed'));
+    });
+    document.body.appendChild(img);
+    await loaded;
+    assert_equals(getSelectedCandidate(img.currentSrc), tc.expected);
+  }, `<img>: ${tc.desc}`);
+}
+</script>
