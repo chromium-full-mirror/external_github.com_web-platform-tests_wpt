@@ -1,0 +1,56 @@
+<!DOCTYPE html>
+<meta name="timeout" content="long">
+<meta name="variant" content="?document-policy=strict-origin-when-cross-origin">
+<meta name="variant" content="?document-policy=no-referrer">
+<meta name="variant" content="?document-policy=same-origin">
+<link rel="help" href="https://drafts.csswg.org/css-values-5/#typedef-request-url-modifier-referrer-policy-modifier">
+<link rel="help" href="https://w3c.github.io/webappsec-referrer-policy/#integration-with-css">
+<script src="/resources/testharness.js"></script>
+<script src="/resources/testharnessreport.js"></script>
+<script src="/common/utils.js"></script>
+<script src="/common/get-host-info.sub.js"></script>
+<script src="/common/security-features/resources/common.sub.js"></script>
+<script src="/referrer-policy/css-integration/resources/css-subresource-referrer.js"></script>
+<script>
+// A referrer-policy() request URL modifier can only make the referrer policy
+// stricter than the policy that would apply without the modifier (the style
+// sheet's, or the document's for inline styles), never looser.
+const cases = {
+  // The default referrer policy.
+  'strict-origin-when-cross-origin': [
+    // The style sheet's Referrer-Policy header applies.
+    {stylesheet: 'external', stylesheet_referrer_policy: 'no-referrer',
+     subresource: 'image', target: 'cross-origin',
+     modifiers: 'referrer-policy(unsafe-url)', expected: 'no referrer'},
+    {stylesheet: 'style-attribute', subresource: 'image',
+     target: 'cross-origin', modifiers: 'referrer-policy(unsafe-url)',
+     expected: 'the origin'},
+  ],
+  'no-referrer': [
+    {stylesheet: 'inline', subresource: 'font', target: 'cross-origin',
+     modifiers: 'cross-origin(anonymous) referrer-policy(unsafe-url)',
+     expected: 'no referrer'},
+    {stylesheet: 'style-attribute', subresource: 'image',
+     target: 'cross-origin', modifiers: 'referrer-policy(unsafe-url)',
+     expected: 'no referrer'},
+    {stylesheet: 'inline', subresource: 'import', target: 'cross-origin',
+     modifiers: 'referrer-policy(unsafe-url)', expected: 'no referrer'},
+    {stylesheet: 'inline', subresource: 'svg', svg_property: 'filter',
+     target: 'cross-origin',
+     modifiers: 'cross-origin(anonymous) referrer-policy(unsafe-url)',
+     expected: 'no referrer'},
+  ],
+  // same-origin and origin are incomparable: same-origin sends no referrer to
+  // cross-origin URLs, and origin sends only the origin to same-origin URLs.
+  // The greatest policy that sends no more than either is no-referrer.
+  'same-origin': [
+    {stylesheet: 'inline', subresource: 'image', target: 'cross-origin',
+     modifiers: 'referrer-policy(origin)', expected: 'no referrer'},
+    {stylesheet: 'inline', subresource: 'image', target: 'same-origin',
+     modifiers: 'referrer-policy(origin)', expected: 'no referrer'},
+  ],
+};
+for (const params of cases[documentReferrerPolicy()]) {
+  testCssSubresourceReferrer(params);
+}
+</script>
